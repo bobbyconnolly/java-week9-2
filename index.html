@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Building an Interactive College Manager</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        line-height: 1.6;
+        color: #333;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 1rem;
+      }
+      h1,
+      h2,
+      h3 {
+        color: #2c3e50;
+        margin-top: 2rem;
+      }
+      pre {
+        background: #f8f9fa;
+        border-radius: 4px;
+        padding: 1rem;
+        overflow-x: auto;
+        border: 1px solid #e9ecef;
+        width: calc(100% - 2rem);
+      }
+      .keyword {
+        color: #0033b3;
+      }
+      .string {
+        color: #067d17;
+      }
+      .comment {
+        color: #8c8c8c;
+      }
+      .number {
+        color: #1750eb;
+      }
+      .type {
+        color: #000080;
+      }
+      .tip {
+        background: #e3f2fd;
+        padding: 1rem;
+        border-radius: 4px;
+        margin: 1rem 0;
+      }
+      .warning {
+        background: #fff3e0;
+        padding: 1rem;
+        border-radius: 4px;
+        margin: 1rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Making Our College Manager Interactive! 🎮</h1>
+
+    <p>In our previous guide, we built the foundation of our College Manager system. We have our model classes (Student, Course, CollegeManager) and a basic web interface that displays our data.</p>
+
+    <div class="tip">
+      <strong>But wait!</strong> Our College Manager can only display data - we can't add new students or courses, or register students for courses! Let's make it interactive! 🚀
+    </div>
+
+    <h2>Review: Our Model Layer 📊</h2>
+
+    <p>Remember our three main model classes:</p>
+
+    <ul>
+      <li><strong>Student</strong>: Stores student info and which courses they're registered for</li>
+      <li><strong>Course</strong>: Stores course details (code, title, credits, instructor)</li>
+      <li><strong>CollegeManager</strong>: Manages all students and courses</li>
+    </ul>
+
+    <p>We tested these classes with a simple Main class:</p>
+
+    <pre><span class="keyword">public static void</span> main(String[] args) {
+    <span class="comment">// Create our college manager</span>
+    CollegeManager manager = <span class="keyword">new</span> CollegeManager();
+    
+    <span class="comment">// Add some students</span>
+    Student alice = manager.addStudent(<span class="string">"Alice Smith"</span>, <span class="string">"alice@example.com"</span>);
+    Student bob = manager.addStudent(<span class="string">"Bob Johnson"</span>, <span class="string">"bob@example.com"</span>);
+    
+    <span class="comment">// Add some courses</span>
+    Course javaCourse = manager.addCourse(<span class="string">"CS101"</span>, <span class="string">"Introduction to Java"</span>, 3, <span class="string">"Dr. Java"</span>);
+    Course webDev = manager.addCourse(<span class="string">"CS201"</span>, <span class="string">"Web Development"</span>, 4, <span class="string">"Prof. Web"</span>);
+    
+    <span class="comment">// Register students for courses</span>
+    manager.registerStudentForCourse(alice.getId(), javaCourse.getCode());
+    manager.registerStudentForCourse(bob.getId(), javaCourse.getCode());
+}</pre>
+
+    <div class="tip">
+      <strong>Remember:</strong> Testing with a Main class is great for verifying our model works independently of the web framework. The Jakarta EE server has its own "main" program that reads our servlet annotations and manages the web application lifecycle! 🧩
+    </div>
+
+    <h2>Enhancing the ManagerServlet 🛠️</h2>
+
+    <p>Our current servlet only handles GET requests to display data. Let's update it to handle POST requests for adding students, courses, and registrations:</p>
+
+    <pre><span class="annotation">@WebServlet("/manager")</span>
+<span class="keyword">public class</span> ManagerServlet <span class="keyword">extends</span> HttpServlet {
+    
+    <span class="comment">// Our existing doGet method stays the same</span>
+    
+    <span class="annotation">@Override</span>
+    <span class="keyword">protected void</span> doPost(HttpServletRequest request, HttpServletResponse response) 
+            <span class="keyword">throws</span> ServletException, IOException {
+        
+        <span class="comment">// Get the session and college manager</span>
+        HttpSession session = request.getSession();
+        CollegeManager manager = (CollegeManager) session.getAttribute(<span class="string">"collegeManager"</span>);
+        
+        <span class="comment">// If somehow we don't have a manager, create one</span>
+        <span class="keyword">if</span> (manager == <span class="keyword">null</span>) {
+            manager = <span class="keyword">new</span> CollegeManager();
+            session.setAttribute(<span class="string">"collegeManager"</span>, manager);
+        }
+        
+        <span class="comment">// Get the action parameter to determine what operation to perform</span>
+        String action = request.getParameter(<span class="string">"action"</span>);
+        
+        <span class="keyword">if</span> (<span class="string">"addStudent"</span>.equals(action)) {
+            addStudent(request, manager);
+        } <span class="keyword">else if</span> (<span class="string">"addCourse"</span>.equals(action)) {
+            addCourse(request, manager);
+        } <span class="keyword">else if</span> (<span class="string">"registerStudentForCourse"</span>.equals(action)) {
+            registerStudentForCourse(request, manager);
+        }
+        
+        <span class="comment">// Redirect back to the manager page to see the updated data</span>
+        response.sendRedirect(request.getContextPath() + <span class="string">"/manager"</span>);
+    }
+}</pre>
+
+    <div class="warning">
+      <strong>Wait!</strong> We need to implement the helper methods for each action! 🤔
+    </div>
+
+    <p>Let's add the helper methods to process each form submission:</p>
+
+    <pre><span class="keyword">private void</span> addStudent(HttpServletRequest request, CollegeManager manager) {
+    String name = request.getParameter(<span class="string">"studentName"</span>);
+    String email = request.getParameter(<span class="string">"studentEmail"</span>);
+    
+    <span class="comment">// Validate the input</span>
+    <span class="keyword">if</span> (name != <span class="keyword">null</span> && !name.trim().isEmpty() && 
+        email != <span class="keyword">null</span> && !email.trim().isEmpty()) {
+        manager.addStudent(name, email);
+    }
+}
+
+<span class="keyword">private void</span> addCourse(HttpServletRequest request, CollegeManager manager) {
+    String code = request.getParameter(<span class="string">"courseCode"</span>);
+    String title = request.getParameter(<span class="string">"courseTitle"</span>);
+    String creditsStr = request.getParameter(<span class="string">"courseCredits"</span>);
+    String instructor = request.getParameter(<span class="string">"courseInstructor"</span>);
+    
+    <span class="comment">// Validate the input</span>
+    <span class="keyword">if</span> (code != <span class="keyword">null</span> && !code.trim().isEmpty() && 
+        title != <span class="keyword">null</span> && !title.trim().isEmpty() && 
+        creditsStr != <span class="keyword">null</span> && !creditsStr.trim().isEmpty() && 
+        instructor != <span class="keyword">null</span> && !instructor.trim().isEmpty()) {
+        
+        <span class="keyword">try</span> {
+            <span class="keyword">int</span> credits = Integer.parseInt(creditsStr);
+            manager.addCourse(code, title, credits, instructor);
+        } <span class="keyword">catch</span> (NumberFormatException e) {
+            <span class="comment">// Handle invalid credit number</span>
+            <span class="comment">// In a real app, we'd add an error message here</span>
+        }
+    }
+}
+
+<span class="keyword">private void</span> registerStudentForCourse(HttpServletRequest request, CollegeManager manager) {
+    String studentIdStr = request.getParameter(<span class="string">"studentId"</span>);
+    String courseCode = request.getParameter(<span class="string">"courseCode"</span>);
+    
+    <span class="comment">// Validate the input</span>
+    <span class="keyword">if</span> (studentIdStr != <span class="keyword">null</span> && !studentIdStr.trim().isEmpty() && 
+        courseCode != <span class="keyword">null</span> && !courseCode.trim().isEmpty()) {
+        
+        <span class="keyword">try</span> {
+            <span class="keyword">int</span> studentId = Integer.parseInt(studentIdStr);
+            manager.registerStudentForCourse(studentId, courseCode);
+        } <span class="keyword">catch</span> (NumberFormatException e) {
+            <span class="comment">// Handle invalid student ID</span>
+        }
+    }
+}</pre>
+
+    <div class="tip">
+      <strong>What's happening here?</strong>
+      <ul>
+        <li>We're checking the <code>action</code> parameter to know which operation to perform</li>
+        <li>Each helper method gets form parameters, validates them, and calls the appropriate CollegeManager method</li>
+        <li>After processing, we redirect back to the page to show updated data</li>
+        <li>Notice how our servlet is just a thin layer between the web forms and our model! 🔄</li>
+      </ul>
+    </div>
+
+    <h2>The POST-Redirect-GET Pattern 🔄</h2>
+
+    <p>Notice the pattern we're using:</p>
+
+    <ol>
+      <li>User submits a form using POST</li>
+      <li>Servlet processes the data and updates the model</li>
+      <li>Servlet redirects the browser to the GET URL</li>
+      <li>Browser makes a new GET request</li>
+      <li>Servlet displays the updated data</li>
+    </ol>
+
+    <p>This is called the POST-Redirect-GET pattern, and it's a best practice for web forms! It prevents issues like duplicate form submissions if the user refreshes the page. 🔄</p>
+
+    <div class="warning">
+      <strong>But wait!</strong> Our JSP doesn't have any forms yet! Let's update it to allow adding students, courses, and registrations. 📝
+    </div>
+
+    <h2>Enhancing Our JSP View with Forms 📝</h2>
+
+    <p>Let's update our JSP to include forms for adding students, courses, and registering students for courses. We'll organize them in a nice card layout:</p>
+
+    <pre>&lt;%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%&gt;
+&lt;%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %&gt;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+    &lt;meta charset="UTF-8"&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;
+    &lt;title&gt;College Manager&lt;/title&gt;
+    &lt;style&gt;
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+            margin-top: 2rem;
+        }
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+        }
+        .card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1.5rem;
+            border: 1px solid #e9ecef;
+            flex: 1;
+            min-width: 300px;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0069d9;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+        th {
+            background-color: #f8f9fa;
+        }
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;h1&gt;🎓 College Manager System&lt;/h1&gt;</pre>
+
+    <p>Now let's add our form container with three cards for our different forms:</p>
+
+    <pre>    &lt;div class="container"&gt;
+        &lt;!-- Add Course Form --&gt;
+        &lt;div class="card"&gt;
+            &lt;h2&gt;Add New Course 📚&lt;/h2&gt;
+            &lt;form action="${pageContext.request.contextPath}/manager" method="post"&gt;
+                &lt;input type="hidden" name="action" value="addCourse"&gt;
+                
+                &lt;div class="form-group"&gt;
+                    &lt;label for="courseCode"&gt;Course Code:&lt;/label&gt;
+                    &lt;input type="text" id="courseCode" name="courseCode" required&gt;
+                &lt;/div&gt;
+                
+                &lt;div class="form-group"&gt;
+                    &lt;label for="courseTitle"&gt;Course Title:&lt;/label&gt;
+                    &lt;input type="text" id="courseTitle" name="courseTitle" required&gt;
+                &lt;/div&gt;
+                
+                &lt;div class="form-group"&gt;
+                    &lt;label for="courseCredits"&gt;Credits:&lt;/label&gt;
+                    &lt;input type="number" id="courseCredits" name="courseCredits" min="1" max="6" required&gt;
+                &lt;/div&gt;
+                
+                &lt;div class="form-group"&gt;
+                    &lt;label for="courseInstructor"&gt;Instructor:&lt;/label&gt;
+                    &lt;input type="text" id="courseInstructor" name="courseInstructor" required&gt;
+                &lt;/div&gt;
+                
+                &lt;button type="submit"&gt;Add Course&lt;/button&gt;
+            &lt;/form&gt;
+        &lt;/div&gt;
+        
+        &lt;!-- Add Student Form --&gt;
+        &lt;div class="card"&gt;
+            &lt;h2&gt;Add New Student 👨‍🎓&lt;/h2&gt;
+            &lt;form action="${pageContext.request.contextPath}/manager" method="post"&gt;
+                &lt;input type="hidden" name="action" value="addStudent"&gt;
+                
+                &lt;div class="form-group"&gt;
+                    &lt;label for="studentName"&gt;Student Name:&lt;/label&gt;
+                    &lt;input type="text" id="studentName" name="studentName" required&gt;
+                &lt;/div&gt;
+                
+                &lt;div class="form-group"&gt;
+                    &lt;label for="studentEmail"&gt;Email:&lt;/label&gt;
+                    &lt;input type="email" id="studentEmail" name="studentEmail" required&gt;
+                &lt;/div&gt;
+                
+                &lt;button type="submit"&gt;Add Student&lt;/button&gt;
+            &lt;/form&gt;
+        &lt;/div&gt;
+        
+        &lt;!-- Register Student for Course Form --&gt;
+        &lt;div class="card"&gt;
+            &lt;h2&gt;Register Student for Course 📝&lt;/h2&gt;
+            &lt;form action="${pageContext.request.contextPath}/manager" method="post"&gt;
+                &lt;input type="hidden" name="action" value="registerStudentForCourse"&gt;
+                
+                &lt;div class="form-group"&gt;
+                    &lt;label for="studentId"&gt;Select Student:&lt;/label&gt;
+                    &lt;select id="studentId" name="studentId" required&gt;
+                        &lt;option value=""&gt;-- Select Student --&lt;/option&gt;
+                        &lt;c:forEach var="student" items="${collegeManager.allStudents}"&gt;
+                            &lt;option value="${student.id}"&gt;${student.name} (ID: ${student.id})&lt;/option&gt;
+                        &lt;/c:forEach&gt;
+                    &lt;/select&gt;
+                &lt;/div&gt;
+                
+                &lt;div class="form-group"&gt;
+                    &lt;label for="courseCode"&gt;Select Course:&lt;/label&gt;
+                    &lt;select id="courseCode" name="courseCode" required&gt;
+                        &lt;option value=""&gt;-- Select Course --&lt;/option&gt;
+                        &lt;c:forEach var="course" items="${collegeManager.allCourses}"&gt;
+                            &lt;option value="${course.code}"&gt;${course.code}: ${course.title}&lt;/option&gt;
+                        &lt;/c:forEach&gt;
+                    &lt;/select&gt;
+                &lt;/div&gt;
+                
+                &lt;button type="submit"&gt;Register&lt;/button&gt;
+            &lt;/form&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;</pre>
+
+    <div class="tip">
+      <strong>JSP Magic:</strong> Notice how we're using JSTL to dynamically create dropdown options from our collegeManager data!
+      <ul>
+        <li>The <code>&lt;c:forEach&gt;</code> tag loops through students/courses</li>
+        <li>Each option's value is the ID or code we need for registration</li>
+        <li>The dropdown text shows a user-friendly description</li>
+      </ul>
+    </div>
+
+    <p>Now let's keep our existing student and course tables, but with a small enhancement to show more information:</p>
+
+    <pre>    &lt;!-- Display Students --&gt;
+    &lt;h2&gt;Enrolled Students 👨‍🎓👩‍🎓&lt;/h2&gt;
+    &lt;c:choose&gt;
+        &lt;c:when test="${empty collegeManager.allStudents}"&gt;
+            &lt;p&gt;No students enrolled yet.&lt;/p&gt;
+        &lt;/c:when&gt;
+        &lt;c:otherwise&gt;
+            &lt;table&gt;
+                &lt;thead&gt;
+                    &lt;tr&gt;
+                        &lt;th&gt;ID&lt;/th&gt;
+                        &lt;th&gt;Name&lt;/th&gt;
+                        &lt;th&gt;Email&lt;/th&gt;
+                        &lt;th&gt;Registered Courses&lt;/th&gt;
+                    &lt;/tr&gt;
+                &lt;/thead&gt;
+                &lt;tbody&gt;
+                    &lt;c:forEach var="student" items="${collegeManager.allStudents}"&gt;
+                        &lt;tr&gt;
+                            &lt;td&gt;${student.id}&lt;/td&gt;
+                            &lt;td&gt;${student.name}&lt;/td&gt;
+                            &lt;td&gt;${student.email}&lt;/td&gt;
+                            &lt;td&gt;
+                                &lt;c:forEach var="course" items="${student.registeredCourses}" varStatus="status"&gt;
+                                    ${course.code}${!status.last ? ', ' : ''}
+                                &lt;/c:forEach&gt;
+                            &lt;/td&gt;
+                        &lt;/tr&gt;
+                    &lt;/c:forEach&gt;
+                &lt;/tbody&gt;
+            &lt;/table&gt;
+        &lt;/c:otherwise&gt;
+    &lt;/c:choose&gt;</pre>
+
+    <div class="warning">
+      <strong>Did you spot it?</strong> We added a fancy way to display course codes with commas between them! The <code>varStatus="status"</code> gives us access to the loop status, so we can check if we're on the last item! 🧠
+    </div>
+
+    <p>Finally, let's enhance our courses table to show enrollment information:</p>
+
+    <pre>    &lt;!-- Display Courses --&gt;
+    &lt;h2&gt;Available Courses 📚&lt;/h2&gt;
+    &lt;c:choose&gt;
+        &lt;c:when test="${empty collegeManager.allCourses}"&gt;
+            &lt;p&gt;No courses available yet.&lt;/p&gt;
+        &lt;/c:when&gt;
+        &lt;c:otherwise&gt;
+            &lt;table&gt;
+                &lt;thead&gt;
+                    &lt;tr&gt;
+                        &lt;th&gt;Code&lt;/th&gt;
+                        &lt;th&gt;Title&lt;/th&gt;
+                        &lt;th&gt;Credits&lt;/th&gt;
+                        &lt;th&gt;Instructor&lt;/th&gt;
+                        &lt;th&gt;Enrollment&lt;/th&gt;
+                    &lt;/tr&gt;
+                &lt;/thead&gt;
+                &lt;tbody&gt;
+                    &lt;c:forEach var="course" items="${collegeManager.allCourses}"&gt;
+                        &lt;tr&gt;
+                            &lt;td&gt;${course.code}&lt;/td&gt;
+                            &lt;td&gt;${course.title}&lt;/td&gt;
+                            &lt;td&gt;${course.credits}&lt;/td&gt;
+                            &lt;td&gt;${course.instructor}&lt;/td&gt;
+                            &lt;td&gt;
+                                &lt;c:set var="count" value="0" /&gt;
+                                &lt;c:forEach var="student" items="${collegeManager.allStudents}"&gt;
+                                    &lt;c:if test="${student.isRegisteredFor(course)}"&gt;
+                                        &lt;c:set var="count" value="${count + 1}" /&gt;
+                                    &lt;/c:if&gt;
+                                &lt;/c:forEach&gt;
+                                ${count} students
+                            &lt;/td&gt;
+                        &lt;/tr&gt;
+                    &lt;/c:forEach&gt;
+                &lt;/tbody&gt;
+            &lt;/table&gt;
+        &lt;/c:otherwise&gt;
+    &lt;/c:choose&gt;
+    
+    &lt;div class="tip" style="background: #e3f2fd; padding: 1rem; border-radius: 4px; margin: 1rem 0;"&gt;
+        &lt;strong&gt;Tip:&lt;/strong&gt; Use the forms above to add new courses and students, then register students for courses!
+    &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;</pre>
+
+    <div class="tip">
+      <strong>JSP Logic:</strong> We're using more JSTL to calculate how many students are enrolled in each course! We:
+      <ol>
+        <li>Start a counter at 0 using <code>&lt;c:set&gt;</code></li>
+        <li>Loop through all students</li>
+        <li>Check if each student is registered for the current course</li>
+        <li>Increment the counter for each match</li>
+        <li>Display the final count</li>
+      </ol>
+    </div>
+
+    <h2>Improving the Course Enrollment Count 🧮</h2>
+
+    <p>Our JSP counts enrollments on the fly, but it would be more efficient to add a method to CollegeManager to calculate this. Let's add this method to our CollegeManager class:</p>
+
+    <pre><span class="keyword">public</span> Map&lt;String, Integer&gt; getCoursesRegistrationStats() {
+    Map&lt;String, Integer&gt; stats = <span class="keyword">new</span> HashMap&lt;&gt;();
+    
+    <span class="keyword">for</span> (Course course : courses) {
+        <span class="keyword">int</span> count = 0;
+        <span class="keyword">for</span> (Student student : students) {
+            <span class="keyword">if</span> (student.isRegisteredFor(course)) {
+                count++;
+            }
+        }
+        stats.put(course.getCode(), count);
+    }
+    
+    <span class="keyword">return</span> stats;
+}</pre>
+
+    <p>Then we can update our JSP to use this method instead:</p>
+
+    <pre>&lt;c:set var="enrollmentStats" value="${collegeManager.coursesRegistrationStats}" /&gt;
+...
+&lt;td&gt;${enrollmentStats[course.code]} students&lt;/td&gt;</pre>
+
+    <div class="warning">
+      <strong>Think about it:</strong> This approach is more efficient because we calculate all enrollments at once, instead of recalculating for each course in the JSP! This is a great example of keeping business logic in your model where it belongs! 🧠
+    </div>
+
+    <h2>Adding User-Friendly Features 🌟</h2>
+
+    <p>Now that we have a working College Manager with forms, let's add some user-friendly enhancements!</p>
+
+    <h3>1. Adding Success Messages</h3>
+
+    <p>It would be nice to show a message when an action completes successfully. Let's update our ManagerServlet to add success messages:</p>
+
+    <pre><span class="keyword">private void</span> addStudent(HttpServletRequest request, CollegeManager manager) {
+    String name = request.getParameter(<span class="string">"studentName"</span>);
+    String email = request.getParameter(<span class="string">"studentEmail"</span>);
+    
+    <span class="keyword">if</span> (name != <span class="keyword">null</span> && !name.trim().isEmpty() && 
+        email != <span class="keyword">null</span> && !email.trim().isEmpty()) {
+        Student student = manager.addStudent(name, email);
+        
+        <span class="comment">// Add a success message to the session</span>
+        HttpSession session = request.getSession();
+        session.setAttribute(<span class="string">"message"</span>, <span class="string">"Student "</span> + student.getName() + <span class="string">" added successfully!"</span>);
+    }
+}</pre>
+
+    <p>We'll add similar code to our other action methods. Then in our JSP, let's add a section to display these messages:</p>
+
+    <pre>&lt;c:if test="${not empty message}"&gt;
+    &lt;div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin: 1rem 0;"&gt;
+        ${message}
+    &lt;/div&gt;
+    &lt;c:remove var="message" scope="session" /&gt;
+&lt;/c:if&gt;</pre>
+
+    <div class="tip">
+      <strong>Important:</strong> We remove the message from the session after displaying it so it doesn't show up again on the next request! This is a common pattern for "flash messages" in web applications. ⚡
+    </div>
+
+    <h3>2. Adding Validation and Error Messages</h3>
+
+    <p>Let's enhance our servlet to check for errors. For example, we might want to prevent registering a student for a course they're already taking:</p>
+
+    <pre><span class="keyword">private void</span> registerStudentForCourse(HttpServletRequest request, CollegeManager manager) {
+    String studentIdStr = request.getParameter(<span class="string">"studentId"</span>);
+    String courseCode = request.getParameter(<span class="string">"courseCode"</span>);
+    HttpSession session = request.getSession();
+    
+    <span class="keyword">if</span> (studentIdStr != <span class="keyword">null</span> && !studentIdStr.trim().isEmpty() && 
+        courseCode != <span class="keyword">null</span> && !courseCode.trim().isEmpty()) {
+        
+        <span class="keyword">try</span> {
+            <span class="keyword">int</span> studentId = Integer.parseInt(studentIdStr);
+            
+            <span class="comment">// Check if student is already registered for this course</span>
+            Student student = manager.findStudentById(studentId);
+            Course course = manager.findCourseByCode(courseCode);
+            
+            <span class="keyword">if</span> (student != <span class="keyword">null</span> && course != <span class="keyword">null</span>) {
+                <span class="keyword">if</span> (student.isRegisteredFor(course)) {
+                    session.setAttribute(<span class="string">"error"</span>, <span class="string">"Student "</span> + student.getName() + 
+                                      <span class="string">" is already registered for "</span> + course.getCode() + <span class="string">"!"</span>);
+                } <span class="keyword">else</span> {
+                    manager.registerStudentForCourse(studentId, courseCode);
+                    session.setAttribute(<span class="string">"message"</span>, <span class="string">"Student "</span> + student.getName() + 
+                                       <span class="string">" registered for "</span> + course.getCode() + <span class="string">" successfully!"</span>);
+                }
+            }
+        } <span class="keyword">catch</span> (NumberFormatException e) {
+            session.setAttribute(<span class="string">"error"</span>, <span class="string">"Invalid student ID format!"</span>);
+        }
+    }
+}</pre>
+
+    <p>And add a div to display errors in our JSP:</p>
+
+    <pre>&lt;c:if test="${not empty error}"&gt;
+    &lt;div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin: 1rem 0;"&gt;
+        ${error}
+    &lt;/div&gt;
+    &lt;c:remove var="error" scope="session" /&gt;
+&lt;/c:if&gt;</pre>
+
+    <h3>3. Course Details Page</h3>
+
+    <p>Let's add a details page for each course that shows more information and lists all enrolled students. First, add a method to the doGet in our ManagerServlet:</p>
+
+    <pre><span class="annotation">@Override</span>
+<span class="keyword">protected void</span> doGet(HttpServletRequest request, HttpServletResponse response) 
+        <span class="keyword">throws</span> ServletException, IOException {
+    
+    HttpSession session = request.getSession();
+    CollegeManager manager = getCollegeManager(session);
+    
+    <span class="comment">// Check if we're viewing a specific course</span>
+    String courseCode = request.getParameter(<span class="string">"courseCode"</span>);
+    <span class="keyword">if</span> (courseCode != <span class="keyword">null</span> && !courseCode.isEmpty()) {
+        Course course = manager.findCourseByCode(courseCode);
+        <span class="keyword">if</span> (course != <span class="keyword">null</span>) {
+            request.setAttribute(<span class="string">"course"</span>, course);
+            
+            <span class="comment">// Find all students registered for this course</span>
+            List&lt;Student&gt; enrolledStudents = <span class="keyword">new</span> ArrayList&lt;&gt;();
+            <span class="keyword">for</span> (Student student : manager.getAllStudents()) {
+                <span class="keyword">if</span> (student.isRegisteredFor(course)) {
+                    enrolledStudents.add(student);
+                }
+            }
+            request.setAttribute(<span class="string">"enrolledStudents"</span>, enrolledStudents);
+            
+            request.getRequestDispatcher(<span class="string">"/WEB-INF/views/courseDetails.jsp"</span>).forward(request, response);
+            <span class="keyword">return</span>;
+        }
+    }
+    
+    <span class="comment">// If no course code specified, show the main page</span>
+    request.setAttribute(<span class="string">"collegeManager"</span>, manager);
+    request.getRequestDispatcher(<span class="string">"/WEB-INF/views/manager.jsp"</span>).forward(request, response);
+}</pre>
+
+    <p>Now let's create a new JSP file called courseDetails.jsp:</p>
+
+    <pre>&lt;%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%&gt;
+&lt;%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %&gt;
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+    &lt;meta charset="UTF-8"&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;
+    &lt;title&gt;Course Details: ${course.code}&lt;/title&gt;
+    &lt;style&gt;
+        /* Same CSS as manager.jsp */
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;h1&gt;📚 Course Details: ${course.code}&lt;/h1&gt;
+    
+    &lt;div class="card"&gt;
+        &lt;h2&gt;${course.title}&lt;/h2&gt;
+        &lt;p&gt;&lt;strong&gt;Course Code:&lt;/strong&gt; ${course.code}&lt;/p&gt;
+        &lt;p&gt;&lt;strong&gt;Credits:&lt;/strong&gt; ${course.credits}&lt;/p&gt;
+        &lt;p&gt;&lt;strong&gt;Instructor:&lt;/strong&gt; ${course.instructor}&lt;/p&gt;
+        &lt;p&gt;&lt;strong&gt;Enrolled Students:&lt;/strong&gt; ${enrolledStudents.size()}&lt;/p&gt;
+    &lt;/div&gt;
+    
+    &lt;h2&gt;Enrolled Students&lt;/h2&gt;
+    &lt;c:choose&gt;
+        &lt;c:when test="${empty enrolledStudents}"&gt;
+            &lt;p&gt;No students enrolled in this course yet.&lt;/p&gt;
+        &lt;/c:when&gt;
+        &lt;c:otherwise&gt;
+            &lt;table&gt;
+                &lt;thead&gt;
+                    &lt;tr&gt;
+                        &lt;th&gt;ID&lt;/th&gt;
+                        &lt;th&gt;Name&lt;/th&gt;
+                        &lt;th&gt;Email&lt;/th&gt;
+                    &lt;/tr&gt;
+                &lt;/thead&gt;
+                &lt;tbody&gt;
+                    &lt;c:forEach var="student" items="${enrolledStudents}"&gt;
+                        &lt;tr&gt;
+                            &lt;td&gt;${student.id}&lt;/td&gt;
+                            &lt;td&gt;${student.name}&lt;/td&gt;
+                            &lt;td&gt;${student.email}&lt;/td&gt;
+                        &lt;/tr&gt;
+                    &lt;/c:forEach&gt;
+                &lt;/tbody&gt;
+            &lt;/table&gt;
+        &lt;/c:otherwise&gt;
+    &lt;/c:choose&gt;
+    
+    &lt;p&gt;&lt;a href="${pageContext.request.contextPath}/manager"&gt;&lt;&lt; Back to College Manager&lt;/a&gt;&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;</pre>
+
+    <p>Finally, let's update the course table in our manager.jsp to add links to the details page:</p>
+
+    <pre>&lt;td&gt;
+    &lt;a href="${pageContext.request.contextPath}/manager?courseCode=${course.code}"&gt;
+        ${course.code}
+    &lt;/a&gt;
+&lt;/td&gt;</pre>
+
+    <div class="tip">
+      <strong>Nice!</strong> Now users can click on a course code to see detailed information about that course and which students are enrolled! 🔍
+    </div>
+
+    <h2>Adding More Advanced Features 🚀</h2>
+
+    <p>Let's add a few more advanced features to make our College Manager even better!</p>
+
+    <h3>1. Student Search</h3>
+
+    <p>We could add a search form to find students by name or ID. Add this to manager.jsp:</p>
+
+    <pre>&lt;div class="card"&gt;
+    &lt;h2&gt;Search Students 🔍&lt;/h2&gt;
+    &lt;form action="${pageContext.request.contextPath}/manager" method="get"&gt;
+        &lt;input type="hidden" name="action" value="searchStudents"&gt;
+        
+        &lt;div class="form-group"&gt;
+            &lt;label for="searchQuery"&gt;Search by Name or ID:&lt;/label&gt;
+            &lt;input type="text" id="searchQuery" name="q" required&gt;
+        &lt;/div&gt;
+        
+        &lt;button type="submit"&gt;Search&lt;/button&gt;
+    &lt;/form&gt;
+&lt;/div&gt;</pre>
+
+    <p>And add code to our servlet to handle the search:</p>
+
+    <pre><span class="comment">// In doGet method</span>
+String action = request.getParameter(<span class="string">"action"</span>);
+<span class="keyword">if</span> (<span class="string">"searchStudents"</span>.equals(action)) {
+    String query = request.getParameter(<span class="string">"q"</span>);
+    <span class="keyword">if</span> (query != <span class="keyword">null</span> && !query.trim().isEmpty()) {
+        List&lt;Student&gt; searchResults = <span class="keyword">new</span> ArrayList&lt;&gt;();
+        
+        <span class="comment">// Check if query is numeric (student ID)</span>
+        <span class="keyword">try</span> {
+            <span class="keyword">int</span> studentId = Integer.parseInt(query);
+            Student student = manager.findStudentById(studentId);
+            <span class="keyword">if</span> (student != <span class="keyword">null</span>) {
+                searchResults.add(student);
+            }
+        } <span class="keyword">catch</span> (NumberFormatException e) {
+            <span class="comment">// Not a numeric ID, search by name</span>
+            <span class="keyword">for</span> (Student student : manager.getAllStudents()) {
+                <span class="keyword">if</span> (student.getName().toLowerCase().contains(query.toLowerCase())) {
+                    searchResults.add(student);
+                }
+            }
+        }
+        
+        request.setAttribute(<span class="string">"searchResults"</span>, searchResults);
+        request.setAttribute(<span class="string">"searchQuery"</span>, query);
+    }
+}</pre>
+
+    <p>And add this section to our JSP to display search results:</p>
+
+    <pre>&lt;c:if test="${not empty searchResults}"&gt;
+    &lt;h2&gt;Search Results for "${searchQuery}" 🔍&lt;/h2&gt;
+    &lt;c:choose&gt;
+        &lt;c:when test="${empty searchResults}"&gt;
+            &lt;p&gt;No students found matching your search.&lt;/p&gt;
+        &lt;/c:when&gt;
+        &lt;c:otherwise&gt;
+            &lt;table&gt;
+                &lt;thead&gt;
+                    &lt;tr&gt;
+                        &lt;th&gt;ID&lt;/th&gt;
+                        &lt;th&gt;Name&lt;/th&gt;
+                        &lt;th&gt;Email&lt;/th&gt;
+                        &lt;th&gt;Registered Courses&lt;/th&gt;
+                    &lt;/tr&gt;
+                &lt;/thead&gt;
+                &lt;tbody&gt;
+                    &lt;c:forEach var="student" items="${searchResults}"&gt;
+                        &lt;tr&gt;
+                            &lt;td&gt;${student.id}&lt;/td&gt;
+                            &lt;td&gt;${student.name}&lt;/td&gt;
+                            &lt;td&gt;${student.email}&lt;/td&gt;
+                            &lt;td&gt;
+                                &lt;c:forEach var="course" items="${student.registeredCourses}" varStatus="status"&gt;
+                                    ${course.code}${!status.last ? ', ' : ''}
+                                &lt;/c:forEach&gt;
+                            &lt;/td&gt;
+                        &lt;/tr&gt;
+                    &lt;/c:forEach&gt;
+                &lt;/tbody&gt;
+            &lt;/table&gt;
+        &lt;/c:otherwise&gt;
+    &lt;/c:choose&gt;
+&lt;/c:if&gt;</pre>
+
+    <h3>2. Drop Course Functionality</h3>
+
+    <p>Let's add the ability for students to drop courses. First, add a method to our ManagerServlet:</p>
+
+    <pre><span class="keyword">private void</span> dropCourse(HttpServletRequest request, CollegeManager manager) {
+    String studentIdStr = request.getParameter(<span class="string">"studentId"</span>);
+    String courseCode = request.getParameter(<span class="string">"courseCode"</span>);
+    HttpSession session = request.getSession();
+    
+    <span class="keyword">if</span> (studentIdStr != <span class="keyword">null</span> && courseCode != <span class="keyword">null</span>) {
+        <span class="keyword">try</span> {
+            <span class="keyword">int</span> studentId = Integer.parseInt(studentIdStr);
+            Student student = manager.findStudentById(studentId);
+            Course course = manager.findCourseByCode(courseCode);
+            
+            <span class="keyword">if</span> (student != <span class="keyword">null</span> && course != <span class="keyword">null</span>) {
+                <span class="keyword">if</span> (student.isRegisteredFor(course)) {
+                    student.dropCourse(course);
+                    session.setAttribute(<span class="string">"message"</span>, 
+                        <span class="string">"Student "</span> + student.getName() + <span class="string">" dropped "</span> + course.getCode() + <span class="string">" successfully!"</span>);
+                } <span class="keyword">else</span> {
+                    session.setAttribute(<span class="string">"error"</span>, 
+                        <span class="string">"Student "</span> + student.getName() + <span class="string">" is not registered for "</span> + course.getCode() + <span class="string">"!"</span>);
+                }
+            }
+        } <span class="keyword">catch</span> (NumberFormatException e) {
+            session.setAttribute(<span class="string">"error"</span>, <span class="string">"Invalid student ID format!"</span>);
+        }
+    }
+}</pre>
+
+    <p>Add this to our doPost method:</p>
+
+    <pre><span class="keyword">else if</span> (<span class="string">"dropCourse"</span>.equals(action)) {
+    dropCourse(request, manager);
+}</pre>
+
+    <p>And add a form to our JSP to drop courses (perhaps in the student details page):</p>
+
+    <pre>&lt;form action="${pageContext.request.contextPath}/manager" method="post"&gt;
+    &lt;input type="hidden" name="action" value="dropCourse"&gt;
+    &lt;input type="hidden" name="studentId" value="${student.id}"&gt;
+    
+    &lt;div class="form-group"&gt;
+        &lt;label for="dropCourseCode"&gt;Select Course to Drop:&lt;/label&gt;
+        &lt;select id="dropCourseCode" name="courseCode" required&gt;
+            &lt;option value=""&gt;-- Select Course --&lt;/option&gt;
+            &lt;c:forEach var="course" items="${student.registeredCourses}"&gt;
+                &lt;option value="${course.code}"&gt;${course.code}: ${course.title}&lt;/option&gt;
+            &lt;/c:forEach&gt;
+        &lt;/select&gt;
+    &lt;/div&gt;
+    
+    &lt;button type="submit"&gt;Drop Course&lt;/button&gt;
+&lt;/form&gt;</pre>
+
+    <h2>What We've Learned 🎓</h2>
+
+    <ul>
+      <li>How to create an interactive web application with forms</li>
+      <li>Using the POST-Redirect-GET pattern for form submissions</li>
+      <li>Handling different actions with a single servlet</li>
+      <li>Adding validation and error handling</li>
+      <li>Creating detail pages for related entities</li>
+      <li>Adding search functionality</li>
+      <li>Implementing more complex operations like dropping courses</li>
+    </ul>
+
+    <h2>Final Challenges 💪</h2>
+
+    <p>Here are some challenges to further enhance your College Manager:</p>
+
+    <ol>
+      <li>Add student details page similar to the course details page</li>
+      <li>Add the ability to delete courses and students</li>
+      <li>Implement course prerequisites</li>
+      <li>Add student grades for courses</li>
+      <li>Create a login system for different user roles (admin, student, instructor)</li>
+    </ol>
+
+    <div class="tip">
+      <strong>Remember:</strong> Always think about where your code belongs in the MVC pattern:
+      <ul>
+        <li><strong>Model:</strong> Business logic, calculations, data relationships</li>
+        <li><strong>View:</strong> Displaying data and forms</li>
+        <li><strong>Controller:</strong> Handling requests, updating the model, selecting views</li>
+      </ul>
+      This separation makes your code easier to understand, test, and maintain! 🧠
+    </div>
+
+    <h2>Extra Credit: Adding CSS & JavaScript Enhancements 🎨</h2>
+
+    <p>Try these UI enhancements to make your College Manager even better:</p>
+
+    <ol>
+      <li>Add CSS to highlight courses with low enrollment</li>
+      <li>Use JavaScript to confirm before dropping a course</li>
+      <li>Add client-side form validation</li>
+      <li>Create a toggle to show/hide course details inline</li>
+      <li>Add sorting to your tables</li>
+    </ol>
+
+    <p>Congratulations on building a complete College Manager web application! You now have the skills to build complex web applications using Jakarta EE! 🎉</p>
+
+  </body>
+</html>
